@@ -2,27 +2,32 @@ name: CI/CD - Build and Deploy Microservice
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch: {}
+    branches: ["main"]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: mdaquib43/fintility-practical-test
 
 jobs:
-  build-and-push:
-    name: Build & Push Docker Image
+
+  build:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
+
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
+
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set short SHA as image tag
+      - name: Set image tag
         id: meta
         run: echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
@@ -36,48 +41,128 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t fintility-microservice:${{ steps.meta.outputs.image_tag }} \
+            .
+
+      - name: Push Docker image to GHCR
+        run: |
+          docker tag \
+            fintility-microservice:${{ steps.meta.outputs.image_tag }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
+
+          docker tag \
+            fintility-microservice:${{ steps.meta.outputs.image_tag }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+          docker push \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
+
+          docker push \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Save Docker image
+        run: |
+          docker save \
+            fintility-microservice:${{ steps.meta.outputs.image_tag }} \
+            -o fintility-image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fintility-docker-image
+          path: fintility-image.tar
+
 
   deploy:
     name: Deploy to Kubernetes
-    needs: build-and-push
+    needs: build
     runs-on: ubuntu-latest
-    if: ${{ vars.SKIP_DEPLOY != 'true' }}
+
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: fintility-docker-image
+
+      - name: Create Kind Kubernetes cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: fintility-cluster
+
+      - name: Load application image into Kind
+        run: |
+          docker load -i fintility-image.tar
+
+          kind load docker-image \
+            fintility-microservice:${{ needs.build.outputs.image_tag }} \
+            --name fintility-cluster
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: 'v1.30.0'
+          version: v1.30.0
 
-      - name: Configure kubeconfig
+      - name: Update Kubernetes deployment image
         run: |
-          mkdir -p "$HOME/.kube"
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          sed -i \
+            "s|image: webserver:local|image: fintility-microservice:${{ needs.build.outputs.image_tag }}|" \
+            k8s/deployment.yaml
 
-      - name: Apply manifests
+          sed -i \
+            "s|imagePullPolicy: Never|imagePullPolicy: IfNotPresent|" \
+            k8s/deployment.yaml
+
+      - name: Deploy Kubernetes manifests
         run: |
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
 
-      - name: Roll out the newly built image
+      - name: Wait for Kubernetes rollout
         run: |
-          kubectl set image deployment/webserver-deployment \
-            webserver=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
+          kubectl rollout status \
+            deployment/webserver-deployment \
+            --timeout=120s
 
-      - name: Wait for rollout to finish
-        run: kubectl rollout status deployment/webserver-deployment --timeout=120s
-
-      - name: Show result
+      - name: Show Kubernetes resources
         run: |
+          echo "=== Pods ==="
           kubectl get pods -o wide
-          kubectl get svc
+
+          echo "=== Deployment ==="
+          kubectl get deployment
+
+          echo "=== Service ==="
+          kubectl get service
+
+      - name: Test application health
+        run: |
+          kubectl port-forward \
+            service/webserver-service \
+            8080:80 > /tmp/port-forward.log 2>&1 &
+
+          sleep 5
+
+          curl --fail \
+            http://127.0.0.1:8080/health
+
+      - name: Show diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -o wide
+
+          echo "=== Deployment ==="
+          kubectl describe deployment webserver-deployment
+
+          echo "=== Pod details ==="
+          kubectl describe pods
+
+          echo "=== Pod logs ==="
+          kubectl logs deployment/webserver-deployment
