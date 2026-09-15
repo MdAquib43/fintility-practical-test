@@ -1,0 +1,4 @@
+{
+  "name": "Fintility Practical Test",
+  "postCreateCommand": "bash .devcontainer/setup.sh"
+}
