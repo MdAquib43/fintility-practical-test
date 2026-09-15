@@ -16,7 +16,8 @@ spec:
     spec:
       containers:
         - name: webserver
-          image: ghcr.io/OWNER/REPO:latest
+          image: webserver:local
+          imagePullPolicy: Never
           ports:
             - containerPort: 5000
           resources:
