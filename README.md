@@ -1,1 +1,0 @@
-# fintility-practical-test
