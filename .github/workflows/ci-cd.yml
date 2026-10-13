@@ -49,7 +49,7 @@ jobs:
             -t fintility-microservice:${{ steps.meta.outputs.image_tag }} \
             .
       - name: Scan Docker image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.32.0
         with:
           image-ref: fintility-microservice:${{ steps.meta.outputs.image_tag }}
           scan-type: image
