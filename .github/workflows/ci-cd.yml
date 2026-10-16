@@ -170,17 +170,24 @@ jobs:
           curl --fail \
             http://127.0.0.1:8080/health
 
+
       - name: Show diagnostics on failure
         if: failure()
         run: |
           echo "=== Pods ==="
-          kubectl get pods -o wide
+          kubectl get pods -o wide || true
 
           echo "=== Deployment ==="
-          kubectl describe deployment webserver-deployment
+          kubectl describe deployment webserver-deployment || true
 
           echo "=== Pod details ==="
-          kubectl describe pods
+          kubectl describe pods || true
 
-          echo "=== Pod logs ==="
-          kubectl logs deployment/webserver-deployment
+          echo "=== Recent Kubernetes events ==="
+          kubectl get events --sort-by=.metadata.creationTimestamp || true
+
+          echo "=== Container logs ==="
+          kubectl logs deployment/webserver-deployment \
+            --all-containers=true \
+            --tail=100 || true
+
