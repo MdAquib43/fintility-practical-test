@@ -35,7 +35,10 @@ spec:
             capabilities:
               drop:
                 - ALL
-
+      volumes:
+        - name: tmp
+          emptyDir: {}
+          
           resources:
             requests:
               cpu: "100m"
