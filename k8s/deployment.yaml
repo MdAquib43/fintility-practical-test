@@ -1,3 +1,4 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,16 +30,17 @@ spec:
           ports:
             - containerPort: 5000
 
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
-      volumes:
-        - name: tmp
-          emptyDir: {}
-          
+
           resources:
             requests:
               cpu: "100m"
@@ -60,3 +62,7 @@ spec:
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 20
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
